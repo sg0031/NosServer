@@ -4,17 +4,18 @@
 
 HANDLE LogicServer::io = NULL;	//빈 포트 생성
 int LogicServer::id = 0;
-PlayerInfo LogicServer::player[ROOM_MAX_PLAYER];
-priority_queue<FIFO, vector<FIFO>, Standard> LogicServer::playerID;
 int LogicServer::count = 0;
 mutex LogicServer::myLock;
 Sector LogicServer::sector[SECTOR_WIDETH][SECTOR_LENGTH];
 TimerThread LogicServer::timer;
 HandleManager *hManager = HandleManager::getInstance();
-
+std::map<int, PlayerInfo> LogicServer::player;
+std::map<int, Object*> LogicServer::objectList;
 
 LogicServer::LogicServer()
 {
+	player.clear();
+	objectList.clear();
 	///---------------------------------오브젝트 파일 읽어오기-----------------------
 	int fileSize = 0;
 	int objectKind = 0;
@@ -58,107 +59,26 @@ LogicServer::LogicServer()
 	}
 	monin.close();
 	//-------------------------------------------------------------------------------------
-
-	//아이디 초기화----------------------------------------------------------------------
-	FIFO init;
-	//FIFO que
-	for (int i = 0; i < ROOM_MAX_PLAYER; ++i)
-	{
-		init.data = i;
-		init.turn = i;
-		playerID.push(init);
-	}
-	//섹터의 시작좌표와 끝좌표를 입력한다
-	//이는 후에 오브젝트가 배치된 파일을 읽어올때 오브젝트를을 각 섹터에 배치하기 위해서 이다.
-	for (int i = 0; i < SECTOR_WIDETH; ++i)
-	{
-		for (int j = 0; j < SECTOR_LENGTH; ++j)
-		{
-			sector[i][j].startSectorPosition.z = (j*DIVIDE_SECTOR_Z);
-			sector[i][j].endSectorPosition.z = sector[i][j].startSectorPosition.z + DIVIDE_SECTOR_Z;
-			sector[i][j].startSectorPosition.x = (i*DIVIDE_SECTOR_X);
-			sector[i][j].endSectorPosition.x = sector[i][j].endSectorPosition.x + DIVIDE_SECTOR_X;
-			sector[i][j].sectorNum.sectorNumX = i;
-			sector[i][j].sectorNum.sectorNumZ = j;
-		}
-	}
 	//몬스터 셋팅
-	int monsterID = 500;
-	for (int i = 0; i < SECTOR_WIDETH; ++i)
+	int monsterID = MONSTER_START;
+	for (auto m = 0; m < monsterFileSize; ++m)
 	{
-		for (int j = 0; j < SECTOR_LENGTH; ++j)
-		{
-			for (auto m = 0; m < monsterFileSize; ++m)
-			{
-				MonsterPacket mon = monPos[m];
-				if ((i == static_cast<int>(mon.monsterPos.x / DIVIDE_SECTOR_X)) &&
-					(j == static_cast<int>(mon.monsterPos.z / DIVIDE_SECTOR_Z)))
-				{
-					for (auto mPos = 0; mPos < MAX_MONSTER; ++mPos)
-					{
-						if (nullptr == sector[i][j].monsterArr[mPos])
-						{
-							if (orcwarrior == mon.type)
-							{
-								sector[i][j].monsterArr[mPos] = new OrcWarrior;
-								sector[i][j].monsterArr[mPos]->setPosition(mon.monsterPos);
-								sector[i][j].monsterArr[mPos]->setDirection(mon.monsterDir);
-								sector[i][j].monsterArr[mPos]->setMonsterID(monsterID);
-								monsterID++;
-								break;
-							}
-							else if (orcking == mon.type)
-							{
-								sector[i][j].monsterArr[mPos] = new OrcKing;
-								sector[i][j].monsterArr[mPos]->setPosition(mon.monsterPos);
-								sector[i][j].monsterArr[mPos]->setDirection(mon.monsterDir);
-								sector[i][j].monsterArr[mPos]->setMonsterID(BOSS_ID);
-								break;
-							}
-							//sector[i][j].monsterArr[mPos] = new OrcWarrior;
-							//sector[i][j].monsterArr[mPos]->setPosition(mon.monsterPos);
-							//sector[i][j].monsterArr[mPos]->setDirection(mon.monsterDir);
-							//sector[i][j].monsterArr[mPos]->setMonsterID(monsterID);
-							//monsterID++;
-							//break;
-						}
-					}
-				}
-			}
-		}
+		MonsterPacket mon = monPos[m];
+		int i = static_cast<int>(mon.monsterPos.x / DIVIDE_SECTOR_X);
+		int j = static_cast<int>(mon.monsterPos.z / DIVIDE_SECTOR_Z);
+		sector[i][j].objectList.insert(monsterID);
+		monsterID++;
 	}
-	//이후 섹터를 전부 돌면서 오브젝트를 배치한다.
-	for (int i = 0; i < SECTOR_WIDETH; ++i)
+	//object Init.
+	int objectID = OBJECT_START;
+	for (auto o = 0; o < fileSize; ++o)
 	{
-		for (int j = 0; j < SECTOR_LENGTH; ++j)
-		{
-			for (auto o = 0; o < fileSize; ++o)
-			{
-				//오브젝트 임시벡터에 마지막 요소를 참조한후 그요소의 좌표값을 섹터의 값과 비교후 일치할경우 오브젝트를
-				//해당섹터에 배치한다.
-				Object ob = objcetPosition[o];
+		Object ob = objcetPosition[o];
 
-				if ((i == static_cast<int>(ob.objectPosition.x / DIVIDE_SECTOR_X)) &&
-					(j == static_cast<int>(ob.objectPosition.z / DIVIDE_SECTOR_Z)))
-					//if ((sector[i][j].startSectorPosition.x<=ob.objectPosition.x) &&
-					//	(sector[i][j].startSectorPosition.z<=ob.objectPosition.z) &&
-					//	(sector[i][j].endSectorPosition.x>=ob.objectPosition.x) &&
-					//	(sector[i][j].endSectorPosition.z>=ob.objectPosition.z))
-				{
-					for (auto k = 0; k < MAX_OBJECT; ++k)
-					{
-						if (-1 == sector[i][j].arrayObject[k].kind)
-						{
-							sector[i][j].arrayObject[k] = ob;
-							//cout << i << j << endl;
-							break;
-						}
-					}
-					//참조 했던 오브젝트는 벡터에서 지워준다.
-					//ob=objcetPosition.erase(o);
-				}
-			}
-		}
+		int i = static_cast<int>(ob.objectPosition.x / DIVIDE_SECTOR_X);
+		int j = static_cast<int>(ob.objectPosition.z / DIVIDE_SECTOR_Z);
+		sector[i][j].objectList.insert(objectID);
+		objectID++;
 	}
 
 	//create thread
@@ -244,17 +164,9 @@ void LogicServer::acceptThread()
 		if (clientSock == INVALID_SOCKET)
 			cout << "Client Socket Error" << endl;
 
+		player[count].overEx->s = clientSock;
+		player[count].setAccept(true);
 
-		for (int i = 0; i < ROOM_MAX_PLAYER; ++i)
-		{
-			if (player[i].getAccept() == false)
-			{
-				player[i].overEx->s = clientSock;
-				player[i].setAccept(true);
-				count = i;
-				break;
-			}
-		}
 		CreateIoCompletionPort((HANDLE)clientSock, hManager->gHandle, count, 0);
 
 		unsigned long recvflag = 0;
@@ -268,6 +180,7 @@ void LogicServer::acceptThread()
 			if (WSAGetLastError() != WSA_IO_PENDING)
 				cout << "error code : " << WSAGetLastError() << endl;
 		}
+		count++;
 		//	myLock.unlock();
 	}
 }
@@ -307,13 +220,11 @@ void LogicServer::workerThread()
 				if (static_cast<int>(objectId) == i) continue;
 				sendPacket(i, &remove);
 			}
-			FIFO returnID;
-			returnID.data = static_cast<int>(objectId);
-			returnID.turn = static_cast<int>(objectId);
+			//플레이어가 접속을 종료했으니 소켓과 플레이상태를 바꿔줘야한다.
 			player[static_cast<int>(objectId)].pLock.lock();
-			playerID.push(returnID);
-			player[static_cast<int>(objectId)].pLock.unlock();
+			player[static_cast<int>(objectId)].overEx->s = NULL;
 			player[static_cast<int>(objectId)].setPlay(false);
+			player[static_cast<int>(objectId)].pLock.unlock();
 			//WSAGetOverlappedResult
 			//게임종료 처리
 		}
@@ -400,10 +311,9 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 	{
 		//cout << "Login Accept" << endl;
 		player[id].pLock.lock();
-		idAllot = playerID.top();
-		playerID.pop();
+		player[id].setID(id);
 		player[id].pLock.unlock();
-		player[id].setID(idAllot.data);
+		
 		//cout << "id : " << player[id].getID() << endl;
 
 		ScPacketMove login;
@@ -414,7 +324,6 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 		login.state = waitState;
 		player[id].setPlay(true);
 		sendPacket(id, &login);
-		setObject(id);
 		viewListUpdate(id);
 		break;
 	}
@@ -439,6 +348,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 		player[id].pLock.lock();
 		for (auto p : player[id].viewList) //애니메이션 동기화와 클라 좌표계산을 위해 현재 상태를 넘겨줌
 		{
+			if (p >= OBJECT_START) continue;
 			sendPacket(p, &packet);
 		}
 		player[id].pLock.unlock();
@@ -510,6 +420,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 		player[id].pLock.lock();
 		for (auto p : player[id].viewList)
 		{
+			if (p >= OBJECT_START) continue;
 			packet.id = player[p].getID();
 			packet.direction = player[p].getDirection();
 			packet.position = player[p].getPosition();
@@ -522,6 +433,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 		for (auto p : player[id].viewList) //다른플레이어의 위치를 요청한 플레이어의 뷰리스트에 있는 아이디값에대한 좌표들을
 										   //플레이어에게 뿌려준다.
 		{
+			if (p >= OBJECT_START) continue;
 			packet.id = player[id].getID();
 			packet.direction = player[id].getDirection();
 			packet.position = player[id].getPosition();
@@ -604,6 +516,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 		player[id].pLock.lock();
 		for (auto p : player[id].viewList)
 		{
+			if (p >= OBJECT_START) continue;
 			packet.id = player[p].getID();
 			packet.direction = player[p].getDirection();
 			packet.position = player[p].getPosition();
@@ -616,6 +529,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 		for (auto p : player[id].viewList) //다른플레이어의 위치를 요청한 플레이어의 뷰리스트에 있는 아이디값에대한 좌표들을
 										   //플레이어에게 뿌려준다.
 		{
+			if (p >= OBJECT_START) continue;
 			packet.id = player[id].getID();
 			packet.direction = player[id].getDirection();
 			packet.position = player[id].getPosition();
@@ -640,6 +554,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 		player[id].pLock.lock();
 		for (auto i : player[id].viewList)
 		{
+			if (i >= OBJECT_START) continue;
 			sendPacket(i, &put);
 		}
 		player[id].pLock.unlock();
@@ -659,6 +574,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 		player[id].pLock.lock();
 		for (auto i : player[id].viewList)
 		{
+			if (i >= OBJECT_START) continue;
 			sendPacket(i, &packet);
 		}
 		player[id].pLock.unlock();
@@ -684,6 +600,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 		player[id].pLock.lock();
 		for (auto i : player[id].viewList)
 		{
+			if (i >= OBJECT_START) continue;
 			sendPacket(i, &packet);
 		}
 		player[id].pLock.unlock();
@@ -719,6 +636,7 @@ void LogicServer::playerActProcessPacket(OverEx *operation, int id)
 		player[id].pLock.lock();
 		for (auto i : player[id].viewList)
 		{
+			if (i >= OBJECT_START) continue;
 			sendPacket(i, &packet);
 		}
 		player[id].pLock.unlock();
@@ -739,11 +657,12 @@ void LogicServer::playerActProcessPacket(OverEx *operation, int id)
 		player[id].pLock.lock();
 		for (auto i : player[id].viewList)
 		{
+			if (i >= OBJECT_START) continue;
 			sendPacket(i, &packet);
 		}
 		player[id].pLock.unlock();
 	}
-	if (PlayerAttackCrush == operation->operationType)
+	if (PlayerAttackCrush == operation->operationType)	//플레이어가 공격시 충돌체크해주는 부분
 	{
 		//std::cout << "들어옴" << std::endl;
 		int sX = player[id].getCurrentSectorX()-1;
@@ -772,15 +691,14 @@ void LogicServer::playerActProcessPacket(OverEx *operation, int id)
 		{
 			for (auto Z = sZ; Z < eZ; ++Z)
 			{
-				for (auto i = 0; i < MAX_MONSTER; ++i)
+				if (0 == sector[X][Z].objectList.size()) continue;
+				for (auto i : sector[X][Z].objectList)
 				{
-					if (nullptr == sector[X][Z].monsterArr[i])
+					if (deadState == objectList[i]->getState())
 						continue;
-					if (deadState == sector[X][Z].monsterArr[i]->getState())
+					if (waitPosState == objectList[i]->getState())
 						continue;
-					if (waitPosState == sector[X][Z].monsterArr[i]->getState())
-						continue;
-					monPos = sector[X][Z].monsterArr[i]->getPosition();
+					monPos = objectList[i]->getPosition();
 					distance = ((monPos.x - player[id].getPositionX()) *(monPos.x - player[id].getPositionX()) +
 						(monPos.z - player[id].getPositionZ()) *(monPos.z - player[id].getPositionZ()));
 					attackRaduis = (140.0 + 60.0) * (140.0 + 60.0);
@@ -792,22 +710,22 @@ void LogicServer::playerActProcessPacket(OverEx *operation, int id)
 						a = (float)acos((double)angle);
 						b = D3DXToDegree(a);
 						if (b <= 40.0)
-							sector[X][Z].monsterArr[i]->deCreaseHealth();
+							objectList[i]->deCreaseHealth();
 					}
-
 				}
 			}
 		}
 	}
 }
-void LogicServer::monsterActProcessPacket(OverEx *operation, int id, float delTime)
+void LogicServer::monsterActProcessPacket(OverEx *operation, int id, float delTime)		//수정필요
 {
 	//cout << "몬스터이벤트" << endl;
+	int state=0;
 	int startSectorX = 0, startSectorZ = 0, endSectorX = 0, endSectorZ = 0;
-	startSectorX = player[id].getCurrentSectorX() - 1;
-	startSectorZ = player[id].getCurrentSectorZ() - 1;
-	endSectorX = player[id].getCurrentSectorX() + 2;
-	endSectorZ = player[id].getCurrentSectorZ() + 2;
+	startSectorX = (objectList[id]->getPosition().x/DIVIDE_SECTOR_X) - 1;
+	startSectorZ = (objectList[id]->getPosition().z / DIVIDE_SECTOR_Z) - 1;
+	endSectorX = (objectList[id]->getPosition().x / DIVIDE_SECTOR_X) + 2;
+	endSectorZ = (objectList[id]->getPosition().z / DIVIDE_SECTOR_Z) + 2;
 
 	if (startSectorX < 0)
 		startSectorX = 0;
@@ -834,65 +752,24 @@ void LogicServer::monsterActProcessPacket(OverEx *operation, int id, float delTi
 	{
 		for (int j = startSectorZ; j < endSectorZ; ++j)
 		{
-			//if (0 == sector[i][j].playerList.size()) //현재 섹터의 플레이어 리스트가 비어있을경우
-			//{
-			//	//cout <<i<<" "<<j<<"플레이어없음" << endl;
-			//	//현재 섹터에 플레이어가 없더라도 몬스터들이 추격했다가 돌아올수도 있으므로
-			//	//플레이어가 존재하지 않는섹터의 몬스터들도 최초위치로 강제이동을 시켜줘야한다.
-			//	for (auto m = 0; m < MAX_MONSTER; ++m)
-			//	{
-			//		if (nullptr == sector[i][j].monsterArr[m])
-			//			continue;
-			//		if (waitPosState!= sector[i][j].monsterArr[m]->getState() || returnPos != sector[i][j].monsterArr[m]->getState())//시야에 플레이어가 사라졌기 떄문에 상태를 바꿔줘야한다.
-			//			sector[i][j].monsterArr[m]->setState(returnPos);
-			//		sector[i][j].monsterArr[m]->setDealtaTime(0.02);
-			//		sector[i][j].monsterArr[m]->upDate();
+			if (0 == sector[i][j].playerList.size()) continue;
+			for (auto i : sector[i][j].playerList) {
+				if (-1 == objectList[id]->getTarget()) {
+					objectList[id]->setTarget(i, player[i].getPosition());
+				}
+				//monsterList[id]->setDealtaTime(0.02);
+				objectList[id]->upDate();
 
-			//		monState.monsterState = sector[i][j].monsterArr[m]->getState();
-			//		sendPacket(id, &monState);
-
-			//		monPos.monsterID = sector[i][j].monsterArr[m]->getMonsterID();
-			//		monPos.direction = sector[i][j].monsterArr[m]->getDirection();
-			//		monPos.position = sector[i][j].monsterArr[m]->getPosition();
-			//		sendPacket(id, &monPos);
-			//	}
-			//}
-			//else
-			//{
-				for (auto m = 0; m < MAX_MONSTER; ++m)
-				{
-					if (nullptr == sector[i][j].monsterArr[m])
-						continue;
-					D3DXVECTOR3 pos = sector[i][j].monsterArr[m]->getPosition();
-					if (-1 == sector[i][j].monsterArr[m]->getTarget())
-					{
-						sector[i][j].monsterArr[m]->setTarget(id, player[id].getPosition());
-					}
-					else
-					{
-						sector[i][j].monsterArr[m]->setTargetPosition(player[sector[i][j].monsterArr[m]->getTarget()].getPosition());
-					}
-					sector[i][j].monsterArr[m]->setDealtaTime(0.02);
-					sector[i][j].monsterArr[m]->upDate();
-
-					int state = sector[i][j].monsterArr[m]->getState();
-					monState.monsterID = sector[i][j].monsterArr[m]->getMonsterID();
-					monState.monsterState = state;
-					sendPacket(id, &monState);
-					if (pos != sector[i][j].monsterArr[m]->getPosition())
-					{
-						monPos.monsterID = sector[i][j].monsterArr[m]->getMonsterID();
-						monPos.direction = sector[i][j].monsterArr[m]->getDirection();
-						monPos.position = sector[i][j].monsterArr[m]->getPosition();
-						sendPacket(id, &monPos);
-					}
-	/*			}*/
+				state = objectList[id]->getState();
+				monState.monsterID = objectList[id]->getMonsterID();
+				monState.monsterState = state;
+				sendPacket(i, &state);
 			}
 		}
 	}
 	//몬스터 타이머 등록
 	player[id].pLock.lock();
-	timer.AddGameEvent(MonsterMove, player[id].getID(), 20);
+	timer.AddGameEvent(MonsterMove, player[id].getID(), 1000);
 	player[id].pLock.unlock();
 }
 void LogicServer::sendPacket(int client, void* packet)
@@ -921,7 +798,7 @@ void LogicServer::sendPacket(int client, void* packet)
 	//	cout << client << "data Send" << endl;
 
 }
-void LogicServer::searchSector(int id)
+void LogicServer::searchSector(int id)		//수정필요 //수정완료
 {
 	int x = 0, z = 0;
 	x = static_cast<int>(player[id].getPositionX() / DIVIDE_SECTOR_X);
@@ -957,69 +834,6 @@ void LogicServer::searchSector(int id)
 
 		player[id].setPreiveseSectorX(player[id].getCurrentSectorX());
 		player[id].setPreiveseSectorZ(player[id].getCurrentSectorZ());
-
-		int startSectorX = 0, startSectorZ = 0, endSectorX = 0, endSectorZ = 0;
-		startSectorX = player[id].getCurrentSectorX() - 1;
-		startSectorZ = player[id].getCurrentSectorZ() - 1;
-		endSectorX = player[id].getCurrentSectorX() + 2;
-		endSectorZ = player[id].getCurrentSectorZ() + 2;
-
-		if (startSectorX < 0)
-			startSectorX = 0;
-		if (endSectorX >= SECTOR_LENGTH)
-			endSectorX = SECTOR_LENGTH-1;
-		if (startSectorZ < 0)
-			startSectorZ = 0;
-		if (endSectorZ >= SECTOR_WIDETH)
-			endSectorZ = SECTOR_WIDETH-1;
-
-		//섹터 변환시 오브젝트 셋팅
-		unsigned long objectCount = 0;
-		ScPacketObject sectorObjectPacket;
-		ZeroMemory(&sectorObjectPacket.objects, sizeof(sectorObjectPacket.objects));
-		for (int i = startSectorX; i < endSectorX; ++i)
-		{
-			for (int j = startSectorZ; j < endSectorZ; ++j)
-			{
-				memcpy_s(sectorObjectPacket.objects + objectCount,
-					sizeof(sectorObjectPacket.objects) - (sizeof(sector[i][j].arrayObject)*i),
-					sector[i][j].arrayObject,
-					sizeof(sector[i][j].arrayObject));
-				objectCount += 10;
-			}
-		}
-		sectorObjectPacket.position = player[id].getCurrentSector();
-		sectorObjectPacket.id = player[id].getID();
-		sectorObjectPacket.packetSize = sizeof(ScPacketObject);
-		sectorObjectPacket.packetType = SC_SECTOR_UPDATE;
-		sendPacket(id, &sectorObjectPacket);
-
-		//섹터 변환시 몬스터 셋팅
-		unsigned long MonsterCount = 0;
-		ScPacketMonsterList monsterPacket;
-		monsterPacket.packetType = SC_MONSTER_UPDATE;
-		monsterPacket.packetSize = sizeof(ScPacketMonsterList);
-		for (int i = startSectorX; i < endSectorX; ++i)
-		{
-			for (int j = startSectorZ; j < endSectorZ; ++j)
-			{
-				for (auto m = 0; m < MAX_MONSTER; ++m)
-				{
-					if (nullptr == sector[i][j].monsterArr[m])
-						continue;
-					player[id].pLock.lock();
-					monsterPacket.monster[MonsterCount].id = sector[i][j].monsterArr[m]->getMonsterID();
-					monsterPacket.monster[MonsterCount].state = sector[i][j].monsterArr[m]->getState();
-					monsterPacket.monster[MonsterCount].monsterPos = sector[i][j].monsterArr[m]->getPosition();
-					monsterPacket.monster[MonsterCount].monsterDir = sector[i][j].monsterArr[m]->getDirection();
-					monsterPacket.monster[MonsterCount].type = sector[i][j].monsterArr[m]->getType();
-					MonsterCount++;
-					player[id].pLock.unlock();
-				}
-			}
-		}
-		sendPacket(id, &monsterPacket);
-
 	}
 }
 void LogicServer::viewListUpdate(int id)
@@ -1101,7 +915,7 @@ void LogicServer::viewListUpdate(int id)
 	}
 	player[id].pLock.unlock();
 
-	//nearlist에게 putplayer 패킷 뿌리기
+	//nearlist에게 putplayer 패킷 뿌리기(player에 대한 처리)
 	ScPacektPutPlayer put;
 	put.packetSize = sizeof(put);
 	put.packetType = SC_PUT_PLAYER;
@@ -1109,6 +923,7 @@ void LogicServer::viewListUpdate(int id)
 	put.position = player[id].getPosition();
 	put.direction = player[id].getDirection();
 	put.state = waitState;
+
 	for (auto i : nearList)
 	{
 		sendPacket(i, &put);
@@ -1151,22 +966,12 @@ void LogicServer::viewListUpdate(int id)
 	}
 
 }
-void LogicServer::setObject(int id)
+void LogicServer::viewListObjectUpdate(int id)  //새로추가
 {
-	int x = 0, z = 0;
-	x = static_cast<int>(player[id].getPositionX() / DIVIDE_SECTOR_X);
-	z = static_cast<int>(player[id].getPositionZ() / DIVIDE_SECTOR_Z);
-	if (x >= SECTOR_LENGTH)
-		x = SECTOR_LENGTH-1;
-	else
-		player[id].setCurrentSectorX(x);
-	if (z >= SECTOR_WIDETH)
-		z = SECTOR_WIDETH-1;
-	else
-		player[id].setCurrentSectorZ(z);
-
-	player[id].setPreiveseSectorX(player[id].getCurrentSectorX());
-	player[id].setPreiveseSectorZ(player[id].getCurrentSectorZ());
+	std::unordered_set <int> nearList;
+	std::unordered_set <int> removeList;
+	nearList.clear();
+	removeList.clear();
 
 	int startSectorX = 0, startSectorZ = 0, endSectorX = 0, endSectorZ = 0;
 	startSectorX = player[id].getCurrentSectorX() - 1;
@@ -1174,76 +979,194 @@ void LogicServer::setObject(int id)
 	endSectorX = player[id].getCurrentSectorX() + 2;
 	endSectorZ = player[id].getCurrentSectorZ() + 2;
 
-	x = player[id].getCurrentSectorX();
-	z = player[id].getCurrentSectorZ();
-
-	//player[id].pLock.lock();
-	sector[x][z].sectorLock.lock();
-	sector[x][z].playerList.insert(id);
-	sector[x][z].sectorLock.unlock();
-	//player[id].pLock.unlock();
-
 	if (startSectorX < 0)
 		startSectorX = 0;
 	if (endSectorX >= SECTOR_LENGTH)
-		endSectorX = SECTOR_LENGTH-1;
+		endSectorX = SECTOR_LENGTH - 1;
 	if (startSectorZ < 0)
 		startSectorZ = 0;
 	if (endSectorZ >= SECTOR_WIDETH)
-		endSectorZ = SECTOR_WIDETH-1;
-
-	//초기 정적 오브젝트 셋팅
-	unsigned long objectCount = 0;
-	ScPacketObject sectorObjectPacket;
-	ZeroMemory(&sectorObjectPacket.objects, sizeof(sectorObjectPacket.objects));
-	//myLock.lock();
-	for (int i = startSectorX; i < endSectorX; ++i)
+		endSectorZ = SECTOR_WIDETH - 1;
+	//섹터에 존재하는 플레이어들을 전부 nearList에 넣는다.
+	for (auto i = startSectorX; i < endSectorX; ++i)
 	{
-		for (int j = startSectorZ; j < endSectorZ; ++j)
+		for (auto j = startSectorZ; j < endSectorZ; ++j)
 		{
-			memcpy_s(sectorObjectPacket.objects + objectCount,
-				sizeof(sectorObjectPacket.objects) - (sizeof(sector[i][j].arrayObject)*i),
-				sector[i][j].arrayObject,
-				sizeof(sector[i][j].arrayObject));
-			objectCount += 10;
-		}
-	}
-	sectorObjectPacket.position = player[id].getCurrentSector();
-	sectorObjectPacket.id = player[id].getID();
-	sectorObjectPacket.packetSize = sizeof(ScPacketObject);
-	sectorObjectPacket.packetType = SC_SECTOR_UPDATE;
-	//myLock.unlock();
-	sendPacket(id, &sectorObjectPacket);
-
-	//초기 몬스터 셋팅
-	unsigned long MonsterCount = 0;
-	ScPacketMonsterList monsterPacket;
-	monsterPacket.packetType = SC_MONSTER_UPDATE;
-	monsterPacket.packetSize = sizeof(ScPacketMonsterList);
-	for (int i = startSectorX; i < endSectorX; ++i)
-	{
-		for (int j = startSectorZ; j < endSectorZ; ++j)
-		{
-			for (auto m = 0; m < MAX_MONSTER; ++m)
+			if (0 == sector[i][j].objectList.size()) continue;
+			for (auto ob : sector[i][j].objectList)
 			{
-				if (nullptr == sector[i][j].monsterArr[m])
-					continue;
-				monsterPacket.monster[MonsterCount].id = sector[i][j].monsterArr[m]->getMonsterID();
-				monsterPacket.monster[MonsterCount].state = sector[i][j].monsterArr[m]->getState();
-				monsterPacket.monster[MonsterCount].monsterPos = sector[i][j].monsterArr[m]->getPosition();
-				monsterPacket.monster[MonsterCount].monsterDir = sector[i][j].monsterArr[m]->getDirection();
-				monsterPacket.monster[MonsterCount].type = sector[i][j].monsterArr[m]->getType();
-				MonsterCount++;
+				nearList.insert(ob);
 			}
 		}
 	}
-	sendPacket(id, &monsterPacket);
-
-	//몬스터 타이머 등록
+	//id의 뷰리스트와 nearlist를 비교하여 nearlist에 없을경우 뷰리스트의 아이디를 리무브 리스트에 넣고 제거
+	for (auto i : nearList)
+	{
+		player[id].pLock.lock();
+		if (0 == player[id].viewList.count(i))
+		{
+			player[id].viewList.insert(i);
+			player[id].pLock.unlock();
+		}
+		else
+			player[id].pLock.unlock();
+	}
+	//뷰리스트에서 나갈경우
 	player[id].pLock.lock();
-	timer.AddGameEvent(MonsterMove, player[id].getID(), 100);
+	for (auto i : player[id].viewList)
+	{
+		if (0 != nearList.count(i)) continue;
+		removeList.insert(i);
+	}
 	player[id].pLock.unlock();
+
+
+	//-----------------수정 해야함-----------------------
+	//nearlist에게 putplayer 패킷 뿌리기(player에 대한 처리)
+	//오브젝트 뿌려주고 지워주는 부분 및 몬스터의 경우 타이머에 등록해 줘야 한다
+	ScPacektPutPlayer put;
+	put.packetSize = sizeof(put);
+	put.packetType = SC_PUT_PLAYER;
+	put.id = id;
+	put.position = player[id].getPosition();
+	put.direction = player[id].getDirection();
+	put.state = waitState;
+
+	for (auto i : nearList)
+	{
+		sendPacket(i, &put);
+	}
+	for (auto i : nearList)
+	{
+		put.id = i;
+		put.position = player[i].getPosition();
+		put.direction = player[i].getDirection();
+		put.state = waitState;
+		sendPacket(id, &put);
+	}
+	//removelist에게 removeplayer 패킷 뿌리기
+	player[id].pLock.lock();
+	for (auto i : removeList)
+	{
+		player[id].viewList.erase(i);
+	}
+	player[id].pLock.unlock();
+
+	ScPacketRemoveObject remove;
+	remove.packetSize = sizeof(remove);
+	remove.packetType = SC_REMOVE_PLAYER;
+	remove.id = id;
+	for (auto i : removeList)
+	{
+		player[i].pLock.lock();
+		if (0 != player[i].viewList.count(id)) {
+			player[i].viewList.erase(id);
+			player[i].pLock.unlock();
+			sendPacket(i, &remove);
+		}
+		else player[i].pLock.unlock();
+
+	}
+	for (auto i : removeList)
+	{
+		remove.id = i;
+		sendPacket(id, &remove);
+	}
+
 }
+//void LogicServer::setObject(int id)  //수정필요
+//{
+//	int x = 0, z = 0;
+//	x = static_cast<int>(player[id].getPositionX() / DIVIDE_SECTOR_X);
+//	z = static_cast<int>(player[id].getPositionZ() / DIVIDE_SECTOR_Z);
+//	if (x >= SECTOR_LENGTH)
+//		x = SECTOR_LENGTH-1;
+//	else
+//		player[id].setCurrentSectorX(x);
+//	if (z >= SECTOR_WIDETH)
+//		z = SECTOR_WIDETH-1;
+//	else
+//		player[id].setCurrentSectorZ(z);
+//
+//	player[id].setPreiveseSectorX(player[id].getCurrentSectorX());
+//	player[id].setPreiveseSectorZ(player[id].getCurrentSectorZ());
+//
+//	int startSectorX = 0, startSectorZ = 0, endSectorX = 0, endSectorZ = 0;
+//	startSectorX = player[id].getCurrentSectorX() - 1;
+//	startSectorZ = player[id].getCurrentSectorZ() - 1;
+//	endSectorX = player[id].getCurrentSectorX() + 2;
+//	endSectorZ = player[id].getCurrentSectorZ() + 2;
+//
+//	x = player[id].getCurrentSectorX();
+//	z = player[id].getCurrentSectorZ();
+//
+//	//player[id].pLock.lock();
+//	sector[x][z].sectorLock.lock();
+//	sector[x][z].playerList.insert(id);
+//	sector[x][z].sectorLock.unlock();
+//	//player[id].pLock.unlock();
+//
+//	if (startSectorX < 0)
+//		startSectorX = 0;
+//	if (endSectorX >= SECTOR_LENGTH)
+//		endSectorX = SECTOR_LENGTH-1;
+//	if (startSectorZ < 0)
+//		startSectorZ = 0;
+//	if (endSectorZ >= SECTOR_WIDETH)
+//		endSectorZ = SECTOR_WIDETH-1;
+//
+//	//초기 정적 오브젝트 셋팅
+//	unsigned long objectCount = 0;
+//	ScPacketObject sectorObjectPacket;
+//	ZeroMemory(&sectorObjectPacket.objects, sizeof(sectorObjectPacket.objects));
+//	//myLock.lock();
+//	for (int i = startSectorX; i < endSectorX; ++i)
+//	{
+//		for (int j = startSectorZ; j < endSectorZ; ++j)
+//		{
+//			memcpy_s(sectorObjectPacket.objects + objectCount,
+//				sizeof(sectorObjectPacket.objects) - (sizeof(sector[i][j].arrayObject)*i),
+//				sector[i][j].arrayObject,
+//				sizeof(sector[i][j].arrayObject));
+//			objectCount += 10;
+//		}
+//	}
+//	sectorObjectPacket.position = player[id].getCurrentSector();
+//	sectorObjectPacket.id = player[id].getID();
+//	sectorObjectPacket.packetSize = sizeof(ScPacketObject);
+//	sectorObjectPacket.packetType = SC_SECTOR_UPDATE;
+//	//myLock.unlock();
+//	sendPacket(id, &sectorObjectPacket);
+//
+//	//초기 몬스터 셋팅
+//	unsigned long MonsterCount = 0;
+//	ScPacketMonsterList monsterPacket;
+//	monsterPacket.packetType = SC_MONSTER_UPDATE;
+//	monsterPacket.packetSize = sizeof(ScPacketMonsterList);
+//	for (int i = startSectorX; i < endSectorX; ++i)
+//	{
+//		for (int j = startSectorZ; j < endSectorZ; ++j)
+//		{
+//			for (auto m = 0; m < MAX_MONSTER; ++m)
+//			{
+//				if (nullptr == sector[i][j].monsterArr[m])
+//					continue;
+//				monsterPacket.monster[MonsterCount].id = sector[i][j].monsterArr[m]->getMonsterID();
+//				monsterPacket.monster[MonsterCount].state = sector[i][j].monsterArr[m]->getState();
+//				monsterPacket.monster[MonsterCount].monsterPos = sector[i][j].monsterArr[m]->getPosition();
+//				monsterPacket.monster[MonsterCount].monsterDir = sector[i][j].monsterArr[m]->getDirection();
+//				monsterPacket.monster[MonsterCount].type = sector[i][j].monsterArr[m]->getType();
+//				MonsterCount++;
+//			}
+//		}
+//	}
+//	sendPacket(id, &monsterPacket);
+//
+//	//몬스터 타이머 등록
+//	player[id].pLock.lock();
+//	timer.AddGameEvent(MonsterMove, player[id].getID(), 100);
+//	player[id].pLock.unlock();
+//}
 void LogicServer::crashMaxMapSize(int id)
 {
 	if (player[id].getPositionX() <= 0.0)
@@ -1255,7 +1178,7 @@ void LogicServer::crashMaxMapSize(int id)
 	if (player[id].getPositionZ() >= MAP_MAX_WIDETH)
 		player[id].setPositionZ(MAP_MAX_WIDETH);
 }
-bool LogicServer::crashObject(D3DXVECTOR3 position, int id)
+bool LogicServer::crashObject(D3DXVECTOR3 position, int id)//확인필요  //수정필요 //수정완료
 {
 	int startSectorX = 0, startSectorZ = 0, endSectorX = 0, endSectorZ = 0;
 	startSectorX = player[id].getCurrentSectorX() - 1;
@@ -1276,49 +1199,39 @@ bool LogicServer::crashObject(D3DXVECTOR3 position, int id)
 	{
 		for (auto sz = startSectorZ; sz < endSectorZ; ++sz)
 		{
-			for (auto i = 0; i < MAX_OBJECT; ++i) //max는 X   min은 Y
-			{
-				if ((position.x + 20.0 >
-					sector[sx][sz].arrayObject[i].objectPosition.x + (-sector[sx][sz].arrayObject[i].max)) &&
-					(position.x - 20.0f <
-					sector[sx][sz].arrayObject[i].objectPosition.x + sector[sx][sz].arrayObject[i].max))
-				{
-					if ((position.z + 20.0 >
-						sector[sx][sz].arrayObject[i].objectPosition.z + (-sector[sx][sz].arrayObject[i].min)) &&
-						(position.z - 20.0f<
-						sector[sx][sz].arrayObject[i].objectPosition.z + sector[sx][sz].arrayObject[i].min))
-					{
-						return true;
+			if (0 == sector[sx][sz].objectList.size()) continue; //섹터에 오브젝트가 없으면 그냥 넘어간다.
+			for (auto i : sector[sx][sz].objectList) {
+				if (i <= MONSTER_START) {
+					if ((position.x + 20.0 >
+						objectList[i]->getPosition().x + (-objectList[i]->getMax())) &&
+						(position.x - 20.0f <
+							objectList[i]->getPosition().x + objectList[i]->getMax())) {
+						if ((position.z + 20.0 >
+							objectList[i]->getPosition().z + (-objectList[i]->getMin())) &&
+							(position.z - 20.0f <
+								objectList[i]->getPosition().z + objectList[i]->getMin()))
+						{
+							return true;
+						}
 					}
 				}
 			}
+			//for (auto i = 0; i < MAX_OBJECT; ++i) //max는 X   min은 Y
+			//{
+			//	if ((position.x + 20.0 >
+			//		sector[sx][sz].arrayObject[i].objectPosition.x + (-sector[sx][sz].arrayObject[i].max)) &&
+			//		(position.x - 20.0f <
+			//		sector[sx][sz].arrayObject[i].objectPosition.x + sector[sx][sz].arrayObject[i].max))
+			//	{
+			//		if ((position.z + 20.0 >
+			//			sector[sx][sz].arrayObject[i].objectPosition.z + (-sector[sx][sz].arrayObject[i].min)) &&
+			//			(position.z - 20.0f<
+			//			sector[sx][sz].arrayObject[i].objectPosition.z + sector[sx][sz].arrayObject[i].min))
+			//		{
+			//			return true;
+			//		}
+			//	}
+			//}
 		}
 	}
-}
-
-
-
-
-
-////_asm mfence;
-//if ((position.x + 20.0 <
-//	sector[sx][sz].arrayObject[i].objectPosition.x + (-sector[sx][sz].arrayObject[i].min)) ||
-//	(position.x > sector[sx][sz].arrayObject[i].objectPosition.x +
-//		sector[sx][sz].arrayObject[i].max))
-//{
-//	continue;
-//}
-////if ((position.y + 20.0 < sector[sx][sz].arrayObject[i].objectPosition.y) ||
-////	(position.y > sector[sx][sz].arrayObject[i].objectPosition.y +
-////		sector[sx][sz].arrayObject[i].max))
-////{
-////	continue;
-////}
-//if ((position.z + 20.0 <
-//	sector[sx][sz].arrayObject[i].objectPosition.z + (-sector[sx][sz].arrayObject[i].min)) ||
-//	(position.z >
-//		sector[sx][sz].arrayObject[i].objectPosition.z + sector[sx][sz].arrayObject[i].max))
-//{
-//	continue;
-//}
-//return true;
+} 

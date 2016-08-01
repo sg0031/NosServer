@@ -21,6 +21,10 @@
 #define ALLMONSTERNUM 640
 #define BOSS_ID 700
 
+//오브젝트 아이디
+#define OBJECT_START 7000
+#define MONSTER_START 8000
+
 enum
 {
 	//ServerType

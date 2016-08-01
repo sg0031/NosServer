@@ -87,7 +87,7 @@
   <ItemGroup>
     <ClInclude Include="Handle.h" />
     <ClInclude Include="LogicServer.h" />
-    <ClInclude Include="Monster.h" />
+    <ClInclude Include="Object.h" />
     <ClInclude Include="PlayerInfo.h" />
     <ClInclude Include="protocol.h" />
     <ClInclude Include="ProtocolType.h" />
@@ -99,7 +99,7 @@
   <ItemGroup>
     <ClCompile Include="LogicServer.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="Monster.cpp" />
+    <ClCompile Include="Object.cpp" />
     <ClCompile Include="PlayerInfo.cpp" />
     <ClCompile Include="Sector.cpp" />
     <ClCompile Include="stdafx.cpp">

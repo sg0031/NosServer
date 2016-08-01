@@ -12,7 +12,7 @@ PlayerInfo::PlayerInfo()
 	playerDirection.x = 0;
 	playerDirection.y = 0;
 	playerDirection.z = 0;
-	playerVelocity = 200.0;
+	playerVelocity = 10.0;
 	characterType = -1;
 	id = -1;
 	play = false;
