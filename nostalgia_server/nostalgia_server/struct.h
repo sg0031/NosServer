@@ -45,8 +45,14 @@ struct OverEx	//오버렙트구조체 확장
 	char packetBuf[256];
 	char iocpBuf[4096];
 };
-
-struct MonsterPacket
+struct ObjectRead
+{
+	D3DXVECTOR3 pos;
+	float max;
+	float min;
+	int kind;
+};
+struct MonsterRead
 {
 	int id;
 	int type;

@@ -26,7 +26,7 @@ class Object
 	float min;
 protected:
 	int ID;
-	objectType type;
+	int type;
 	objectState myState;
 	int health;
 	int defence;
@@ -43,6 +43,7 @@ protected:
 public:
 	Object();
 	~Object();
+	void setType(int ty) { type = ty; }
 	void setMax(float mx) { max = mx; }
 	void setMin(float mi) { min = mi; }
 	float getMax() { return max; }
@@ -83,6 +84,24 @@ public:
 	virtual void attackTarget();
 	virtual void upDate();
 	virtual void returnMove();
+};
+class Stone :public Object
+{
+public:
+	Stone() {}
+	~Stone() {}
+};
+class Tree :public Object
+{
+public:
+	Tree() {};
+	~Tree() {};
+};
+class River : public Object
+{
+public:
+	River() {};
+	~River() {};
 };
 class OrcWarrior : public Object
 {

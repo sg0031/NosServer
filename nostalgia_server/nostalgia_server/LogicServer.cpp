@@ -21,16 +21,15 @@ LogicServer::LogicServer()
 	int objectKind = 0;
 	ifstream fin("treeCollide.txt");
 	fin >> fileSize;
-	vector<Object> objcetPosition;
+	vector<ObjectRead> objcetPosition;
 	objcetPosition.resize(fileSize);
 	if (fin.is_open())
 	{
 		fin >> objectKind;
 		for (auto i = 0; i < fileSize; ++i)
 		{
-			fin >> objcetPosition[i].objectPosition.x >> objcetPosition[i].objectPosition.y >>
-				objcetPosition[i].objectPosition.z >> objcetPosition[i].max >> objcetPosition[i].min;
-			objcetPosition[i].kind = objectKind;
+			fin >> objcetPosition[i].pos.x >> objcetPosition[i].pos.y >>
+				objcetPosition[i].pos.z >> objcetPosition[i].max >> objcetPosition[i].min;
 		}
 	}
 	else
@@ -43,7 +42,7 @@ LogicServer::LogicServer()
 	int monsterType = 0;
 	ifstream monin("GolemData.txt");
 	monin >> monsterFileSize;
-	vector<MonsterPacket> monPos;
+	vector<MonsterRead> monPos;
 	monPos.resize(monsterFileSize);
 	if (monin.is_open())
 	{
@@ -63,21 +62,41 @@ LogicServer::LogicServer()
 	int monsterID = MONSTER_START;
 	for (auto m = 0; m < monsterFileSize; ++m)
 	{
-		MonsterPacket mon = monPos[m];
+		MonsterRead mon = monPos[m];
+		if (orcwarrior == monPos[m].type) objectList[monsterID] = new OrcWarrior;
+		else if (orcking == monPos[m].type) objectList[monsterID] = new OrcKing;
+		else if (orcmaster == monPos[m].type) objectList[monsterID] = new OrcMaster;
+		else if (orcarchor == monPos[m].type) objectList[monsterID] = new OrcArchor;
+		else cout << "monster create fail : " << monsterID << endl;
+
 		int i = static_cast<int>(mon.monsterPos.x / DIVIDE_SECTOR_X);
 		int j = static_cast<int>(mon.monsterPos.z / DIVIDE_SECTOR_Z);
 		sector[i][j].objectList.insert(monsterID);
+		
+		objectList[monsterID]->setType(monPos[m].type);
+		objectList[monsterID]->setPosition(monPos[m].monsterPos);
+		objectList[monsterID]->setDirection(monPos[m].monsterDir);
+		objectList[monsterID]->setActive(false);
 		monsterID++;
 	}
 	//object Init.
 	int objectID = OBJECT_START;
 	for (auto o = 0; o < fileSize; ++o)
 	{
-		Object ob = objcetPosition[o];
+		ObjectRead ob = objcetPosition[o];
+		if (stone == objectKind) objectList[objectID] = new Stone;
+		else if (tree == objectKind) objectList[objectID] = new Tree;
+		else if (river == objectKind) objectList[objectID] = new River;
+		else cout << "object create fail : " << objectID << endl;
 
-		int i = static_cast<int>(ob.objectPosition.x / DIVIDE_SECTOR_X);
-		int j = static_cast<int>(ob.objectPosition.z / DIVIDE_SECTOR_Z);
+		int i = static_cast<int>(ob.pos.x / DIVIDE_SECTOR_X);
+		int j = static_cast<int>(ob.pos.z / DIVIDE_SECTOR_Z);
 		sector[i][j].objectList.insert(objectID);
+		objectList[objectID]->setType(objectKind);
+		objectList[objectID]->setPosition(ob.pos);
+		objectList[objectID]->setMax(ob.max);
+		objectList[objectID]->setMin(ob.min);
+		objectList[objectID]->setActive(false);
 		objectID++;
 	}
 
@@ -213,7 +232,7 @@ void LogicServer::workerThread()
 			ScPacketRemoveObject remove;
 			remove.packetSize = sizeof(remove);
 			remove.packetType = SC_REMOVE_PLAYER;
-			remove.id = player[static_cast<int>(objectId)].getID();
+			remove.id = static_cast<int>(objectId);
 			for (auto i = 0; i < ROOM_MAX_PLAYER; ++i)
 			{
 				if (false == player[i].getPlay()) continue;
@@ -304,7 +323,6 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 	//cout << "processPacket 진입" << endl;
 	//cout <<"id : "<< id << endl;
 	BYTE *header = reinterpret_cast<BYTE*>(ptr + 4);
-	FIFO idAllot;
 	switch (*header)
 	{
 	case CS_LOGIN_REQUEST:
@@ -754,7 +772,7 @@ void LogicServer::monsterActProcessPacket(OverEx *operation, int id, float delTi
 		{
 			if (0 == sector[i][j].playerList.size()) continue;
 			for (auto i : sector[i][j].playerList) {
-				if (-1 == objectList[id]->getTarget()) {
+				if ((-1 == objectList[id]->getTarget()) && (i>=MONSTER_START)) {
 					objectList[id]->setTarget(i, player[i].getPosition());
 				}
 				//monsterList[id]->setDealtaTime(0.02);
@@ -1020,28 +1038,20 @@ void LogicServer::viewListObjectUpdate(int id)  //새로추가
 	}
 	player[id].pLock.unlock();
 
-
 	//-----------------수정 해야함-----------------------
 	//nearlist에게 putplayer 패킷 뿌리기(player에 대한 처리)
 	//오브젝트 뿌려주고 지워주는 부분 및 몬스터의 경우 타이머에 등록해 줘야 한다
 	ScPacektPutPlayer put;
 	put.packetSize = sizeof(put);
 	put.packetType = SC_PUT_PLAYER;
-	put.id = id;
-	put.position = player[id].getPosition();
-	put.direction = player[id].getDirection();
-	put.state = waitState;
 
 	for (auto i : nearList)
 	{
-		sendPacket(i, &put);
-	}
-	for (auto i : nearList)
-	{
+		objectList[i]->setActive(true);
 		put.id = i;
-		put.position = player[i].getPosition();
-		put.direction = player[i].getDirection();
-		put.state = waitState;
+		put.position = objectList[i]->getPosition();
+		put.direction = objectList[i]->getDirection();
+		//put.state = static_cast<int>(objectList[i]->getState());
 		sendPacket(id, &put);
 	}
 	//removelist에게 removeplayer 패킷 뿌리기
@@ -1055,24 +1065,12 @@ void LogicServer::viewListObjectUpdate(int id)  //새로추가
 	ScPacketRemoveObject remove;
 	remove.packetSize = sizeof(remove);
 	remove.packetType = SC_REMOVE_PLAYER;
-	remove.id = id;
-	for (auto i : removeList)
-	{
-		player[i].pLock.lock();
-		if (0 != player[i].viewList.count(id)) {
-			player[i].viewList.erase(id);
-			player[i].pLock.unlock();
-			sendPacket(i, &remove);
-		}
-		else player[i].pLock.unlock();
-
-	}
 	for (auto i : removeList)
 	{
 		remove.id = i;
 		sendPacket(id, &remove);
+		objectList[i]->setActive(false);
 	}
-
 }
 //void LogicServer::setObject(int id)  //수정필요
 //{

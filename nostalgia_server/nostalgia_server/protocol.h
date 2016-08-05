@@ -53,20 +53,20 @@ struct ScPacketSector
 	int id;
 	Sector area[3][3];
 };
-struct ScPacketObject
-{
-	int packetSize;
-	BYTE packetType;
-	int id;
-	sectorPosition position;
-	Object objects[100];
-};
-struct ScPacketMonsterList
-{
-	int packetSize;
-	BYTE packetType;
-	MonsterPacket monster[100];
-};
+//struct ScPacketObject
+//{
+//	int packetSize;
+//	BYTE packetType;
+//	int id;
+//	sectorPosition position;
+//	Object objects[100];
+//};
+//struct ScPacketMonsterList
+//{
+//	int packetSize;
+//	BYTE packetType;
+//	MonsterRead monster[100];
+//};
 struct ScPacketMonsterPos
 {
 	int packetSize;
