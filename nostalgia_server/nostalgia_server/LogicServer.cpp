@@ -327,11 +327,12 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 	{
 	case CS_LOGIN_REQUEST:
 	{
-		//cout << "Login Accept" << endl;
-		player[id].pLock.lock();
+		cout << "Login Accept" << endl;
 		player[id].setID(id);
-		player[id].pLock.unlock();
-		
+		player[id].setCurrentSectorX(static_cast<int>(player[id].getPositionX() / DIVIDE_SECTOR_X));
+		player[id].setCurrentSectorZ(static_cast<int>(player[id].getPositionZ() / DIVIDE_SECTOR_Z));
+		player[id].setPreiveseSectorX(static_cast<int>(player[id].getPositionX() / DIVIDE_SECTOR_X));
+		player[id].setPreiveseSectorZ(static_cast<int>(player[id].getPositionZ() / DIVIDE_SECTOR_Z));
 		//cout << "id : " << player[id].getID() << endl;
 
 		ScPacketMove login;
@@ -342,7 +343,9 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 		login.state = waitState;
 		player[id].setPlay(true);
 		sendPacket(id, &login);
+		searchSector(id);
 		viewListUpdate(id);
+		viewListObjectUpdate(id);
 		break;
 	}
 	case CS_KEY_DOWN:
@@ -371,7 +374,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 		}
 		player[id].pLock.unlock();
 
-		//std::cout << "keyDown : " << player[id].getDownTime() << std::endl;
+		std::cout << "keyDown : " << player[id].getDownTime() << std::endl;
 		//std::cout << "keyDown pos : " << player[id].getStartPosition().x << "  ,  " << player[id].getStartPosition().z << std::endl;
 		break;
 	}
@@ -404,6 +407,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 			crashMaxMapSize(id);
 			searchSector(id);
 			viewListUpdate(id);
+			viewListObjectUpdate(id);
 			//오브젝트 충돌체크과 맵을 벗어났는지 충돌체크시에 좌표가 함수내부에서
 			//변형될수 있으므로 플레이어의 좌표를 직접가져와서 비교한다.
 			if (!((up->position.x - SYNCHRONIZATION_RANGE <= player[id].getPosition().x) && (player[id].getPosition().x <= (up->position.x + SYNCHRONIZATION_RANGE)) &&
@@ -468,6 +472,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 	}
 	case CS_INFO_REQUSET:
 	{
+		//cout << "requst info" << endl;
 		//주기적으로 업데이트요청이 왔을때 처리하는 부분 방향벡터는 업데이트 해줄 필요성을 느끼나 
 		//포지션벡터의 경우 비교용으로만 사용해야한다고 생각이 든다
 		float time = 0.0;
@@ -506,6 +511,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 				crashMaxMapSize(id);
 				searchSector(id);
 				viewListUpdate(id);
+				viewListObjectUpdate(id);
 				if (!((info->position.x - SYNCHRONIZATION_RANGE <= position.x) && (position.x <= (info->position.x + SYNCHRONIZATION_RANGE)) &&
 					(info->position.z - SYNCHRONIZATION_RANGE <= position.z) && (position.z <= (info->position.z + SYNCHRONIZATION_RANGE))))
 				{
@@ -527,6 +533,7 @@ void LogicServer::processPacket(int id, char *ptr, double deltaTime)
 		}
 		//else
 		//	viewListUpdate(id);
+
 		ScPacketMove packet;
 		packet.packetSize = sizeof(ScPacketMove);
 		packet.packetType = SC_MOVE_POSITION;
@@ -818,9 +825,11 @@ void LogicServer::sendPacket(int client, void* packet)
 }
 void LogicServer::searchSector(int id)		//수정필요 //수정완료
 {
-	int x = 0, z = 0;
+	int x = 0, z = 0, px = 0, pz = 0;
 	x = static_cast<int>(player[id].getPositionX() / DIVIDE_SECTOR_X);
 	z = static_cast<int>(player[id].getPositionZ() / DIVIDE_SECTOR_Z);
+	px = player[id].getPreiveseSectorX();
+	pz = player[id].getPreiveseSectorZ();
 	if (x >= SECTOR_LENGTH)
 		x = SECTOR_LENGTH -1;
 	else
@@ -830,14 +839,13 @@ void LogicServer::searchSector(int id)		//수정필요 //수정완료
 	else
 		player[id].setCurrentSectorZ(z);
 
-	if (x != player[id].getPreiveseSectorX() ||
-		z != player[id].getPreiveseSectorZ())
+	if (x != px || z != pz)
 	{
 		//----------------Sector 갱신시 플레이어리스트도 동시에 갱신
 		player[id].pLock.lock();
 		//이전 섹터에서 id가 섹터리스트에 존재할 경우 id를 지워줌
-		if (0 != sector[player[id].getPreiveseSectorX()][player[id].getPreiveseSectorZ()].playerList.count(id)) {
-			sector[player[id].getPreiveseSectorX()][player[id].getPreiveseSectorZ()].playerList.erase(id);
+		if (0 != sector[px][pz].playerList.count(id)) {
+			sector[px][pz].playerList.erase(id);
 			player[id].pLock.unlock();
 		}
 		else
@@ -845,13 +853,24 @@ void LogicServer::searchSector(int id)		//수정필요 //수정완료
 		//그리고 현재 섹터에 갱신을 해준다.
 
 		player[id].pLock.lock();
-		if (0 == sector[player[id].getCurrentSectorX()][player[id].getCurrentSectorZ()].playerList.count(id))
-			sector[player[id].getCurrentSectorX()][player[id].getCurrentSectorZ()].playerList.insert(id);
+		if (0 == sector[x][z].playerList.count(id))
+			sector[x][z].playerList.insert(id);
 		player[id].pLock.unlock();
 		//------------------
 
-		player[id].setPreiveseSectorX(player[id].getCurrentSectorX());
-		player[id].setPreiveseSectorZ(player[id].getCurrentSectorZ());
+		player[id].setPreiveseSectorX(x);
+		player[id].setPreiveseSectorZ(z);
+	}
+	else {
+		player[id].pLock.lock();
+		if (0 == sector[x][z].playerList.count(id))
+			sector[x][z].playerList.insert(id);
+		player[id].pLock.unlock();
+
+		player[id].setCurrentSectorX(x);
+		player[id].setCurrentSectorZ(z);
+		player[id].setPreiveseSectorX(x);
+		player[id].setPreiveseSectorZ(z);
 	}
 }
 void LogicServer::viewListUpdate(int id)
@@ -923,12 +942,12 @@ void LogicServer::viewListUpdate(int id)
 		}
 	}
 	
-
 	//뷰리스트에서 나갈경우
 	player[id].pLock.lock();
 	for (auto i : player[id].viewList)
 	{
 		if (0 != nearList.count(i)) continue;
+		if (i >= OBJECT_START) continue;
 		removeList.insert(i);
 	}
 	player[id].pLock.unlock();
@@ -1034,6 +1053,7 @@ void LogicServer::viewListObjectUpdate(int id)  //새로추가
 	for (auto i : player[id].viewList)
 	{
 		if (0 != nearList.count(i)) continue;
+		if (i < OBJECT_START) continue;
 		removeList.insert(i);
 	}
 	player[id].pLock.unlock();
@@ -1058,6 +1078,7 @@ void LogicServer::viewListObjectUpdate(int id)  //새로추가
 	player[id].pLock.lock();
 	for (auto i : removeList)
 	{
+		if (0 == player[id].viewList.count(i)) continue;
 		player[id].viewList.erase(i);
 	}
 	player[id].pLock.unlock();
@@ -1068,103 +1089,10 @@ void LogicServer::viewListObjectUpdate(int id)  //새로추가
 	for (auto i : removeList)
 	{
 		remove.id = i;
-		sendPacket(id, &remove);
 		objectList[i]->setActive(false);
+		sendPacket(id, &remove);
 	}
 }
-//void LogicServer::setObject(int id)  //수정필요
-//{
-//	int x = 0, z = 0;
-//	x = static_cast<int>(player[id].getPositionX() / DIVIDE_SECTOR_X);
-//	z = static_cast<int>(player[id].getPositionZ() / DIVIDE_SECTOR_Z);
-//	if (x >= SECTOR_LENGTH)
-//		x = SECTOR_LENGTH-1;
-//	else
-//		player[id].setCurrentSectorX(x);
-//	if (z >= SECTOR_WIDETH)
-//		z = SECTOR_WIDETH-1;
-//	else
-//		player[id].setCurrentSectorZ(z);
-//
-//	player[id].setPreiveseSectorX(player[id].getCurrentSectorX());
-//	player[id].setPreiveseSectorZ(player[id].getCurrentSectorZ());
-//
-//	int startSectorX = 0, startSectorZ = 0, endSectorX = 0, endSectorZ = 0;
-//	startSectorX = player[id].getCurrentSectorX() - 1;
-//	startSectorZ = player[id].getCurrentSectorZ() - 1;
-//	endSectorX = player[id].getCurrentSectorX() + 2;
-//	endSectorZ = player[id].getCurrentSectorZ() + 2;
-//
-//	x = player[id].getCurrentSectorX();
-//	z = player[id].getCurrentSectorZ();
-//
-//	//player[id].pLock.lock();
-//	sector[x][z].sectorLock.lock();
-//	sector[x][z].playerList.insert(id);
-//	sector[x][z].sectorLock.unlock();
-//	//player[id].pLock.unlock();
-//
-//	if (startSectorX < 0)
-//		startSectorX = 0;
-//	if (endSectorX >= SECTOR_LENGTH)
-//		endSectorX = SECTOR_LENGTH-1;
-//	if (startSectorZ < 0)
-//		startSectorZ = 0;
-//	if (endSectorZ >= SECTOR_WIDETH)
-//		endSectorZ = SECTOR_WIDETH-1;
-//
-//	//초기 정적 오브젝트 셋팅
-//	unsigned long objectCount = 0;
-//	ScPacketObject sectorObjectPacket;
-//	ZeroMemory(&sectorObjectPacket.objects, sizeof(sectorObjectPacket.objects));
-//	//myLock.lock();
-//	for (int i = startSectorX; i < endSectorX; ++i)
-//	{
-//		for (int j = startSectorZ; j < endSectorZ; ++j)
-//		{
-//			memcpy_s(sectorObjectPacket.objects + objectCount,
-//				sizeof(sectorObjectPacket.objects) - (sizeof(sector[i][j].arrayObject)*i),
-//				sector[i][j].arrayObject,
-//				sizeof(sector[i][j].arrayObject));
-//			objectCount += 10;
-//		}
-//	}
-//	sectorObjectPacket.position = player[id].getCurrentSector();
-//	sectorObjectPacket.id = player[id].getID();
-//	sectorObjectPacket.packetSize = sizeof(ScPacketObject);
-//	sectorObjectPacket.packetType = SC_SECTOR_UPDATE;
-//	//myLock.unlock();
-//	sendPacket(id, &sectorObjectPacket);
-//
-//	//초기 몬스터 셋팅
-//	unsigned long MonsterCount = 0;
-//	ScPacketMonsterList monsterPacket;
-//	monsterPacket.packetType = SC_MONSTER_UPDATE;
-//	monsterPacket.packetSize = sizeof(ScPacketMonsterList);
-//	for (int i = startSectorX; i < endSectorX; ++i)
-//	{
-//		for (int j = startSectorZ; j < endSectorZ; ++j)
-//		{
-//			for (auto m = 0; m < MAX_MONSTER; ++m)
-//			{
-//				if (nullptr == sector[i][j].monsterArr[m])
-//					continue;
-//				monsterPacket.monster[MonsterCount].id = sector[i][j].monsterArr[m]->getMonsterID();
-//				monsterPacket.monster[MonsterCount].state = sector[i][j].monsterArr[m]->getState();
-//				monsterPacket.monster[MonsterCount].monsterPos = sector[i][j].monsterArr[m]->getPosition();
-//				monsterPacket.monster[MonsterCount].monsterDir = sector[i][j].monsterArr[m]->getDirection();
-//				monsterPacket.monster[MonsterCount].type = sector[i][j].monsterArr[m]->getType();
-//				MonsterCount++;
-//			}
-//		}
-//	}
-//	sendPacket(id, &monsterPacket);
-//
-//	//몬스터 타이머 등록
-//	player[id].pLock.lock();
-//	timer.AddGameEvent(MonsterMove, player[id].getID(), 100);
-//	player[id].pLock.unlock();
-//}
 void LogicServer::crashMaxMapSize(int id)
 {
 	if (player[id].getPositionX() <= 0.0)
